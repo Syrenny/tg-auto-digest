@@ -1,0 +1,27 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Write .env from secrets
+        run: |
+          cat > docker/.env << 'ENVEOF'
+          TELEGRAM_API_ID=${{ secrets.TELEGRAM_API_ID }}
+          TELEGRAM_API_HASH=${{ secrets.TELEGRAM_API_HASH }}
+          TELETHON_SESSION_PATH=data/telethon.session
+          TG_BOT_TOKEN=${{ secrets.TG_BOT_TOKEN }}
+          TG_OWNER_USER_ID=${{ secrets.TG_OWNER_USER_ID }}
+          RADAR_FOLDER_NAME=${{ secrets.RADAR_FOLDER_NAME }}
+          LLM_MODEL=${{ secrets.LLM_MODEL }}
+          LLM_API_KEY=${{ secrets.LLM_API_KEY }}
+          ENVEOF
+
+      - name: Deploy with Docker Compose
+        run: docker compose -f docker/compose.yaml up -d --build
