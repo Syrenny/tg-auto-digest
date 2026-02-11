@@ -8,9 +8,11 @@ jobs:
   deploy:
     runs-on: self-hosted
     steps:
+      - name: Remove root-owned files left by Docker
+        run: docker run --rm -v "$GITHUB_WORKSPACE/docker/data:/mnt" alpine sh -c "rm -rf /mnt/*"
+        continue-on-error: true
+
       - uses: actions/checkout@v4
-        with:
-          clean: false
 
       - name: Write .env from secrets
         run: |
