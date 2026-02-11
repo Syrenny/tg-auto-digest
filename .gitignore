@@ -190,6 +190,7 @@ cython_debug/
 
 # Project-specific
 docker/.env
+docker/data/
 data/
 
 # Ruff stuff:
