@@ -8,11 +8,8 @@ jobs:
   deploy:
     runs-on: self-hosted
     steps:
-      - name: Remove root-owned files left by Docker
-        run: docker run --rm -v "$GITHUB_WORKSPACE/docker/data:/mnt" alpine sh -c "rm -rf /mnt/*"
-        continue-on-error: true
-
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Write .env from secrets
         run: |
@@ -26,6 +23,9 @@ jobs:
           LLM_MODEL=${{ secrets.LLM_MODEL }}
           LLM_API_KEY=${{ secrets.LLM_API_KEY }}
           ENVEOF
+
+      - name: Stop previous containers
+        run: docker compose -f docker/compose.yaml down --remove-orphans
 
       - name: Deploy with Docker Compose
         run: docker compose -f docker/compose.yaml up -d --build
