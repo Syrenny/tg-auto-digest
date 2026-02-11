@@ -50,6 +50,23 @@ class TelegramClientGateway:
         await self._client.sign_in(password=password)
         logger.info("Sign-in with 2FA successful")
 
+    async def log_out(self) -> None:
+        try:
+            await self._client.log_out()
+        except Exception as e:
+            logger.warning("Logout failed: {}, proceeding with client recreation", e)
+        try:
+            await self._client.disconnect()
+        except Exception:
+            pass
+        self._client = TelegramClient(
+            str(self._settings.telethon_session_path),
+            self._settings.telegram_api_id,
+            self._settings.telegram_api_hash,
+        )
+        await self._client.connect()
+        logger.info("Session logged out and client reconnected")
+
     async def stop(self) -> None:
         await self._client.disconnect()
         logger.info("Telethon client disconnected")

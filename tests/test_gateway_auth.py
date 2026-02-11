@@ -101,3 +101,43 @@ class TestSignInPassword:
         mock_client.sign_in.side_effect = PasswordHashInvalidError(None)
         with pytest.raises(PasswordHashInvalidError):
             await gateway.sign_in_password("wrong")
+
+
+class TestLogOut:
+    async def test_log_out_calls_client_log_out_and_reconnects(self):
+        with patch(
+            "telegram_radar.gateway.TelegramClient", autospec=True
+        ) as cls:
+            old_client = MagicMock()
+            old_client.connect = AsyncMock()
+            old_client.log_out = AsyncMock()
+            old_client.disconnect = AsyncMock()
+            new_client = MagicMock()
+            new_client.connect = AsyncMock()
+            cls.side_effect = [old_client, new_client]
+
+            gateway = TelegramClientGateway(_make_settings())
+            await gateway.log_out()
+
+            old_client.log_out.assert_awaited_once()
+            old_client.disconnect.assert_awaited_once()
+            new_client.connect.assert_awaited_once()
+
+    async def test_log_out_succeeds_when_client_log_out_raises(self):
+        with patch(
+            "telegram_radar.gateway.TelegramClient", autospec=True
+        ) as cls:
+            old_client = MagicMock()
+            old_client.connect = AsyncMock()
+            old_client.log_out = AsyncMock(side_effect=Exception("network"))
+            old_client.disconnect = AsyncMock(
+                side_effect=Exception("already disconnected")
+            )
+            new_client = MagicMock()
+            new_client.connect = AsyncMock()
+            cls.side_effect = [old_client, new_client]
+
+            gateway = TelegramClientGateway(_make_settings())
+            await gateway.log_out()
+
+            new_client.connect.assert_awaited_once()

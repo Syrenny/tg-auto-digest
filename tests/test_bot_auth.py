@@ -33,6 +33,7 @@ class FakeGateway:
         self.send_code = AsyncMock()
         self.sign_in_code = AsyncMock()
         self.sign_in_password = AsyncMock()
+        self.log_out = AsyncMock()
 
     async def connect(self) -> None:
         pass
@@ -385,3 +386,161 @@ class TestTimeoutReminder:
             ctx = _make_context()
             await bot._handle_phone(update, ctx)
             old_job.schedule_removal.assert_called_once()
+
+
+# --- /start handler tests (US1) ---
+
+
+class TestStartHandler:
+    async def test_start_from_owner_calls_log_out_and_restarts_auth(
+        self, bot, gateway
+    ):
+        bot._auth_complete = True
+        gateway.authorized = False
+        update = _make_update("/start")
+        ctx = _make_context()
+
+        with patch.object(bot, "_app") as mock_app:
+            mock_app.bot = MagicMock()
+            mock_app.bot.send_message = AsyncMock()
+            mock_app.add_handler = MagicMock()
+            mock_app.job_queue = MagicMock()
+            mock_app.job_queue.run_once = MagicMock()
+
+            await bot._handle_start(update, ctx)
+
+            gateway.log_out.assert_awaited_once()
+            assert bot._auth_complete is False
+            # Should have sent a reset message
+            update.effective_chat.send_message.assert_awaited()
+
+    async def test_start_from_non_owner_is_ignored(self, bot, gateway):
+        update = _make_update("/start", user_id=999)
+        ctx = _make_context()
+        await bot._handle_start(update, ctx)
+        gateway.log_out.assert_not_awaited()
+
+    async def test_start_when_not_authenticated_skips_logout(
+        self, bot, gateway
+    ):
+        bot._auth_complete = False
+        gateway.authorized = False
+        update = _make_update("/start")
+        ctx = _make_context()
+
+        with patch.object(bot, "_app") as mock_app:
+            mock_app.bot = MagicMock()
+            mock_app.bot.send_message = AsyncMock()
+            mock_app.add_handler = MagicMock()
+            mock_app.job_queue = MagicMock()
+            mock_app.job_queue.run_once = MagicMock()
+
+            await bot._handle_start(update, ctx)
+
+            gateway.log_out.assert_not_awaited()
+
+    async def test_start_logout_failure_does_not_block_auth(
+        self, bot, gateway
+    ):
+        bot._auth_complete = True
+        gateway.authorized = False
+        gateway.log_out = AsyncMock(side_effect=Exception("network error"))
+        update = _make_update("/start")
+        ctx = _make_context()
+
+        with patch.object(bot, "_app") as mock_app:
+            mock_app.bot = MagicMock()
+            mock_app.bot.send_message = AsyncMock()
+            mock_app.add_handler = MagicMock()
+            mock_app.job_queue = MagicMock()
+            mock_app.job_queue.run_once = MagicMock()
+
+            # Should NOT raise
+            await bot._handle_start(update, ctx)
+
+            assert bot._auth_complete is False
+
+    async def test_start_during_active_auth_restarts_flow(
+        self, bot, gateway
+    ):
+        bot._auth_complete = False
+        bot._phone = "+79991234567"
+        bot._retry_count = 2
+        gateway.authorized = False
+        # Simulate active reminder job
+        old_job = MagicMock()
+        old_job.schedule_removal = MagicMock()
+        bot._reminder_job = old_job
+
+        update = _make_update("/start")
+        ctx = _make_context()
+
+        with patch.object(bot, "_app") as mock_app:
+            mock_app.bot = MagicMock()
+            mock_app.bot.send_message = AsyncMock()
+            mock_app.add_handler = MagicMock()
+            mock_app.job_queue = MagicMock()
+            mock_app.job_queue.run_once = MagicMock()
+
+            await bot._handle_start(update, ctx)
+
+            assert bot._retry_count == 0
+            assert bot._phone == ""
+
+
+# --- Command menu tests (US2) ---
+
+
+class TestCommandMenu:
+    async def test_start_registers_commands(self):
+        settings = _make_settings()
+        gateway = FakeGateway()
+        bot = TelegramBotController(
+            settings=settings,
+            gateway=gateway,
+            summarizer=FakeSummarizer(),
+            state=FakeStateRepository(),
+            run_digest=AsyncMock(return_value="digest"),
+        )
+
+        with patch.object(bot, "_app") as mock_app:
+            mock_app.initialize = AsyncMock()
+            mock_app.start = AsyncMock()
+            mock_app.updater = MagicMock()
+            mock_app.updater.start_polling = AsyncMock()
+            mock_app.bot = MagicMock()
+            mock_app.bot.set_my_commands = AsyncMock()
+
+            await bot.start()
+
+            mock_app.bot.set_my_commands.assert_awaited_once()
+            commands = mock_app.bot.set_my_commands.call_args[0][0]
+            command_names = [c.command for c in commands]
+            assert "start" in command_names
+            assert "digest_now" in command_names
+            assert "channels" in command_names
+            assert "health" in command_names
+
+    async def test_menu_registration_failure_does_not_block_start(self):
+        settings = _make_settings()
+        gateway = FakeGateway()
+        bot = TelegramBotController(
+            settings=settings,
+            gateway=gateway,
+            summarizer=FakeSummarizer(),
+            state=FakeStateRepository(),
+            run_digest=AsyncMock(return_value="digest"),
+        )
+
+        with patch.object(bot, "_app") as mock_app:
+            mock_app.initialize = AsyncMock()
+            mock_app.start = AsyncMock()
+            mock_app.updater = MagicMock()
+            mock_app.updater.start_polling = AsyncMock()
+            mock_app.bot = MagicMock()
+            mock_app.bot.set_my_commands = AsyncMock(
+                side_effect=Exception("API error")
+            )
+
+            # Should NOT raise
+            await bot.start()

@@ -4,7 +4,7 @@ from collections.abc import Callable, Coroutine
 from typing import Any
 
 from loguru import logger
-from telegram import Update
+from telegram import BotCommand, Update
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -59,6 +59,7 @@ class TelegramBotController:
         self._register_handlers()
 
     def _register_handlers(self) -> None:
+        self._app.add_handler(CommandHandler("start", self._handle_start))
         self._app.add_handler(CommandHandler("digest_now", self._handle_digest_now))
         self._app.add_handler(CommandHandler("channels", self._handle_channels))
         self._app.add_handler(CommandHandler("health", self._handle_health))
@@ -66,6 +67,35 @@ class TelegramBotController:
     def _is_owner(self, update: Update) -> bool:
         user = update.effective_user
         return user is not None and user.id == self._settings.tg_owner_user_id
+
+    async def _handle_start(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        if not self._is_owner(update):
+            return
+
+        logger.info("Session reset requested by owner")
+
+        # Cancel any active reminder and reset state
+        self._cancel_reminder()
+        self._retry_count = 0
+        self._phone = ""
+
+        if self._auth_complete:
+            try:
+                await self._gateway.log_out()
+            except Exception as e:
+                logger.warning("Logout failed: {}, proceeding", e)
+
+        self._auth_complete = False
+
+        await update.effective_chat.send_message(
+            "Session reset. Starting re-authentication..."
+        )
+
+        auth_event = asyncio.Event()
+        await self.start_auth_flow(auth_event)
+        logger.info("Auth flow restarted after /start")
 
     async def start_auth_flow(self, auth_event: asyncio.Event) -> None:
         self._auth_event = auth_event
@@ -350,6 +380,16 @@ class TelegramBotController:
         await self._app.start()
         await self._app.updater.start_polling()
         logger.info("Bot started polling")
+        try:
+            await self._app.bot.set_my_commands([
+                BotCommand("start", "Reset session and re-authenticate"),
+                BotCommand("digest_now", "Generate digest immediately"),
+                BotCommand("channels", "List monitored channels"),
+                BotCommand("health", "Check system health"),
+            ])
+            logger.info("Bot command menu registered")
+        except Exception as e:
+            logger.warning("Failed to register command menu: {}", e)
 
     async def stop(self) -> None:
         await self._app.updater.stop()
