@@ -25,9 +25,30 @@ class TelegramClientGateway:
             settings.telegram_api_hash,
         )
 
-    async def start(self) -> None:
-        await self._client.start()
-        logger.info("Telethon client connected")
+    async def connect(self) -> None:
+        await self._client.connect()
+        logger.info("Telethon connected")
+
+    async def is_authorized(self) -> bool:
+        try:
+            authorized = await self._client.is_user_authorized()
+        except Exception:
+            logger.warning("Session check failed, treating as unauthorized")
+            return False
+        logger.info("Session authorized: {}", authorized)
+        return authorized
+
+    async def send_code(self, phone: str) -> None:
+        await self._client.send_code_request(phone)
+        logger.info("Code sent to {}", phone)
+
+    async def sign_in_code(self, phone: str, code: str) -> None:
+        await self._client.sign_in(phone, code=code)
+        logger.info("Sign-in successful")
+
+    async def sign_in_password(self, password: str) -> None:
+        await self._client.sign_in(password=password)
+        logger.info("Sign-in with 2FA successful")
 
     async def stop(self) -> None:
         await self._client.disconnect()

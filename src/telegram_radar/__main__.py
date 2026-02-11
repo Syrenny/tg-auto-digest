@@ -1,6 +1,5 @@
 import asyncio
 import signal
-from functools import partial
 from pathlib import Path
 
 from loguru import logger
@@ -55,10 +54,19 @@ async def main() -> None:
     )
 
     # Start services
-    await gateway.start()
+    await gateway.connect()
     await bot.start()
-    scheduler.start()
 
+    # Auth flow: if session not authorized, bot collects credentials
+    if not await gateway.is_authorized():
+        auth_event = asyncio.Event()
+        await bot.start_auth_flow(auth_event)
+        logger.info("Waiting for authentication via bot...")
+        await auth_event.wait()
+    else:
+        bot._auth_complete = True
+
+    scheduler.start()
     logger.info("Telegram Radar Digest is running")
 
     # Graceful shutdown
