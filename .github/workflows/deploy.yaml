@@ -8,6 +8,9 @@ jobs:
   deploy:
     runs-on: self-hosted
     steps:
+      - name: Clean up root-owned files from previous Docker runs
+        run: sudo rm -rf docker/data/
+
       - uses: actions/checkout@v4
 
       - name: Write .env from secrets
